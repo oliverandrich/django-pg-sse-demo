@@ -1,0 +1,87 @@
+from datetime import timedelta
+from importlib import import_module
+
+from crontask import scheduler
+from django.conf import settings
+from django.tasks import TaskResultStatus, task_backends
+from django.tasks.backends.immediate import ImmediateBackend
+from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
+from django_pg_sse.models import StreamEvent
+from django_tasks_db.models import DBTaskResult
+from model_bakery import baker
+
+from tests.utils import evaluate_settings
+
+prune_task_results = import_module("demo.tasks").prune_task_results
+suite_settings = import_module("demo.test_runner").suite_settings
+
+IMMEDIATE = "django.tasks.backends.immediate.ImmediateBackend"
+DATABASE = "django_tasks_db.DatabaseBackend"
+
+
+class TasksSettingTest(SimpleTestCase):
+    def test_database_backend_by_default(self):
+        tasks = evaluate_settings()["TASKS"]
+        self.assertEqual(tasks["default"]["BACKEND"], DATABASE)
+
+    def test_tasks_backend_selects_the_backend(self):
+        tasks = evaluate_settings(TASKS_BACKEND=IMMEDIATE)["TASKS"]
+        self.assertEqual(tasks["default"]["BACKEND"], IMMEDIATE)
+
+
+class SuiteSettingsTest(SimpleTestCase):
+    def test_tasks_run_immediately(self):
+        # A project with TASKS_BACKEND in .env would otherwise queue tasks no test runs.
+        with override_settings(TASKS={"default": {"BACKEND": DATABASE}}), suite_settings():
+            self.assertIsInstance(task_backends["default"], ImmediateBackend)
+
+
+@override_settings(TASKS={"default": {"BACKEND": DATABASE}})
+class PruneTaskResultsTest(TestCase):
+    def make_result(self, *, age: timedelta) -> DBTaskResult:
+        return baker.make(
+            DBTaskResult,
+            status=TaskResultStatus.SUCCESSFUL,
+            finished_at=timezone.now() - age,
+            backend_name="default",
+            queue_name="reports",
+        )
+
+    def test_deletes_results_older_than_two_weeks_in_every_queue(self):
+        old = self.make_result(age=timedelta(days=15))
+        recent = self.make_result(age=timedelta(days=1))
+        prune_task_results.call()
+        remaining = DBTaskResult.objects.values_list("id", flat=True)
+        self.assertNotIn(old.id, remaining)
+        self.assertIn(recent.id, remaining)
+
+    @override_settings(TASKS={"default": {"BACKEND": IMMEDIATE}})
+    def test_does_nothing_without_the_database_backend(self):
+        prune_task_results.call()
+
+    def test_runs_daily(self):
+        names = [job.name for job in scheduler.get_jobs()]
+        self.assertIn(prune_task_results.name, names)
+
+
+prune_stream_events = import_module("demo.tasks").prune_stream_events
+
+
+@override_settings(PG_SSE={**settings.PG_SSE, "RETENTION_HOURS": 24})
+class PruneStreamEventsTest(TestCase):
+    def make_event(self, *, age: timedelta):
+        event = baker.make(StreamEvent, topic="public:news")
+        StreamEvent.objects.filter(pk=event.pk).update(created=timezone.now() - age)
+        return event
+
+    def test_deletes_events_older_than_the_retention(self):
+        old = self.make_event(age=timedelta(hours=25))
+        recent = self.make_event(age=timedelta(hours=1))
+        prune_stream_events.call()
+        remaining = StreamEvent.objects.values_list("id", flat=True)
+        self.assertNotIn(old.id, remaining)
+        self.assertIn(recent.id, remaining)
+
+    def test_runs_hourly(self):
+        self.assertIn(prune_stream_events.name, [job.name for job in scheduler.get_jobs()])

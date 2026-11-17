@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+#MISE description="One-time setup of a freshly generated project: .env, dependencies, CSS, git"
+set -euo pipefail
+
+cd "${MISE_PROJECT_ROOT:-$PWD}"
+
+green() { printf '\033[32m✓\033[0m %s\n' "$1"; }
+
+# Template-only files ship with every project. template_tests/ exists only in the template repository.
+# Each listed *.project.* file replaces the file of the same name without ".project". A list, not a
+# search: bootstrap may run again, and a project's own *.project.* files must survive it.
+if [ ! -d template_tests ]; then
+    rm -f .github/workflows/template.yml
+    for file in CLAUDE.project.md .github/dependabot.project.yml; do
+        if [ -f "$file" ]; then
+            mv "$file" "${file/.project./.}"
+            green "Installed the project's ${file/.project./.}."
+        fi
+    done
+fi
+
+# -f, not -e: the justfile this replaced appended its block unconditionally, so a second run
+# left DEBUG in .env twice.
+if [ ! -f .env ]; then
+    echo "# Activate debug mode for the Django framework." >.env
+    echo "DEBUG=true" >>.env
+    green "Created .env file."
+fi
+
+# Not plain `python`: _.python.venv puts .venv/bin first, so inside a task that name already
+# resolves to the interpreter being installed into. Asking mise breaks the circle.
+python="$(mise which python)"
+uv sync --all-extras --python "$python"
+green "Installed dependencies on $("$python" --version)."
+
+# Needs a reachable PostgreSQL server. A failure only warns, so the remaining setup still runs.
+if uv run python manage.py createdb; then
+    green "Created the database, unless it existed."
+else
+    printf '\033[33m!\033[0m %s\n' "No database: start PostgreSQL or set DATABASE_URL in .env, then run 'mise run manage createdb'."
+fi
+
+uv run python manage.py tailwind build >/dev/null
+green "Built the initial tailwind.css."
+
+# Guarded, because this task also exists in the template repository, where re-initialising git
+# and committing everything would be destructive rather than helpful.
+if [ ! -d .git ]; then
+    git init --quiet
+    git add -A .
+    git commit --quiet -m "Initial commit"
+    green "Initialised the git repository and made the initial commit."
+fi
+
+uvx --with pre-commit-uv pre-commit install >/dev/null
+green "Installed the pre-commit hook."
+
+echo
+printf '\033[32mHappy coding!\033[0m\n'

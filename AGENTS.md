@@ -1,0 +1,191 @@
+# AGENTS.md
+
+Conventions for this Django project. They apply to people and coding agents alike.
+
+## Layout
+
+The project uses the [single folder layout](https://noumenal.es/notes/django/single-folder-layout/).
+Models, views, admin, templates and commands live in the project package next to `settings.py`.
+The project package is the directory named after the project.
+It is itself the one Django app in `INSTALLED_APPS`.
+
+Do not create apps by default.
+Run `mise run manage startapp <name>` only when a part needs its own models and boundary.
+A reusable app or a clearly separate domain justifies one. File size alone does not.
+
+- `<package>/`: settings, URLs, views, models, admin, templates, locale, management commands
+- `tests/`: the test suite
+- `assets/`: static source files; `assets/css/tailwind.css` is generated
+- `docker/`: Dockerfile and entrypoint for production
+- `logs/`: log files of management commands, ignored by git
+
+## Commands
+
+Run everything through mise. It pins Python and uv, and loads `.env`.
+
+```bash
+mise run bootstrap       # first setup: .env, dependencies, CSS, git, pre-commit hook
+mise run upgrade         # upgrade all dependencies
+mise run debugserver     # granian (ASGI), Tailwind, worker and scheduler; Ctrl-C stops all
+mise run runserver       # WSGI dev server with Tailwind; use it for breakpoint()
+mise run migrate
+mise run makemigrations
+mise run shell           # shell_plus
+mise run worker          # run queued tasks (database task backend only)
+mise run scheduler       # enqueue @cron tasks on their schedule
+mise run manage <args>   # any other manage.py command
+mise run lint            # pre-commit: ruff, basedpyright, django-upgrade, djade
+mise run test            # test suite with coverage
+```
+
+## Done means checked
+
+Run `mise run lint` and `mise run test` before calling a change done.
+Both run in CI on every pull request.
+CI also builds the Docker image.
+
+## Configuration
+
+Settings read the environment through environs, following the 12-factor approach.
+`.env` holds local values and is ignored by git.
+Add new settings as environment variables with a development default.
+Do not add a second settings module per environment.
+
+PostgreSQL is the only supported database, through psycopg 3.
+`DATABASE_URL` defaults to `postgres:///<package>` over the local Unix socket.
+`mise run manage createdb` creates that database; `mise run bootstrap` calls it.
+Tests need a running PostgreSQL server and the CREATEDB privilege.
+Django's connection pool is on; `DATABASE_POOL=false` turns it off for PgBouncer in transaction mode.
+Each process holds 1 to 10 connections, set by `DATABASE_POOL_MIN_SIZE` and `DATABASE_POOL_MAX_SIZE`.
+Under ASGI each concurrent sync view holds one, so the maximum caps concurrent requests per process.
+
+The default cache is Django's `DatabaseCache` in the table `django_cache`.
+`migrate` creates it through a post_migrate receiver in `<package>/cache.py`.
+The table is UNLOGGED: writes skip the WAL, and a crash empties it.
+Standbys do not replicate UNLOGGED tables, so read replicas cannot serve the cache.
+It holds up to 10000 entries; `CACHE_URL=db://django_cache?max_entries=N` changes that.
+
+## Frontend
+
+Pages are rendered on the server.
+htmx adds interactivity; there is no JavaScript build step and no SPA framework.
+htmx 4 and its hx-sse extension are vendored in `assets/vendor/htmx`.
+`mise run update-htmx <version>` replaces them after checking the npm checksum.
+django-htmx provides `request.htmx` and, in `DEBUG`, shows error pages for failed htmx requests.
+Do not use its `{% htmx_script %}` tag: it loads the htmx bundled with django-htmx.
+htmx 4 passes attributes to descendants only with the `:inherited` suffix, as in `hx-boost:inherited`.
+`base.html` sets the `X-CSRFToken` header on every htmx request from the `csrftoken` cookie.
+The cookie follows the token rotation in `login()`, which a token fixed in the page does not.
+Keep `CSRF_COOKIE_HTTPONLY` off, so the script can read the cookie.
+Every page sets that cookie, which makes responses vary on `Cookie`.
+htmx 4 swaps 4xx and 5xx responses, and requests time out after 60 seconds.
+Tailwind CSS with daisyUI comes from django-tailwind-cli, which needs no Node.js.
+`base.html` enables `hx-boost` for the whole page.
+
+The project runs on ASGI under granian, in development and production.
+Write views as sync functions unless they wait, such as a server-sent event stream.
+`mise run runserver` is WSGI and cannot stream an async response.
+
+The template builtins include `i18n`, `static` and `heroicons`.
+Templates use them without `{% load %}`.
+
+## Management commands
+
+Write commands as django-click functions with `@command()` from `<package>/management/base.py`.
+`@command()` adds a rotating log file in `logs/`, the system checks and `--skip-checks`.
+`@pass_logger` passes the command's logger in as `logger`.
+
+```python
+import djclick as click
+
+from <package>.management.base import command, pass_logger
+
+
+@command()
+@click.argument("source")
+@pass_logger
+def main(logger, source):
+    logger.info("importing from %s", source)
+```
+
+## Tasks
+
+Tasks use Django's tasks framework, `django.tasks`.
+Define them in `<package>/tasks.py` with `@task`.
+The default backend, `django_tasks_db.DatabaseBackend`, stores tasks for `mise run worker`.
+`TASKS_BACKEND=django.tasks.backends.immediate.ImmediateBackend` runs a task inside `enqueue()`.
+
+django-crontask schedules recurring tasks.
+Put `@cron("<crontab>")` above `@task`.
+The day-of-week field takes names such as `Mon`, not numbers.
+`mise run scheduler` enqueues each task on its schedule, in `TIME_ZONE`.
+`prune_task_results` deletes finished results older than 14 days at 03:00.
+
+`<package>/scheduler_lock.py` lets one scheduler run per database through an advisory lock.
+A second scheduler exits after 15 seconds.
+A transaction-pooling PgBouncer breaks the lock.
+
+## Live updates
+
+[django-pg-sse](https://github.com/oliverandrich/django-pg-sse) pushes server-sent events over PostgreSQL LISTEN/NOTIFY.
+Its README documents the API.
+This section covers the project's wiring.
+
+`broadcast(topic, data)` sends after the current transaction commits; a rollback sends nothing.
+Render HTML from a template partial, such as `render_to_string("chat.html#message", context)`.
+A page opens one stream for all its topics: `hx-sse:connect="{% url 'pg_sse:stream' %}?topic=a&topic=b"`.
+htmx swaps each message; elements with `hx-swap-oob` or `<hx-partial>` update the page anywhere.
+
+```html
+<ul id="messages"></ul>
+<div hx-sse:connect="{% url 'pg_sse:stream' %}?topic=room:{{ room.pk }}"></div>
+```
+
+```python
+from django_pg_sse import broadcast
+
+html = '<ul id="messages" hx-swap-oob="beforeend"><li id="message-7">Hi</li></ul>'
+broadcast(f"room:{room.pk}", html)
+```
+
+`broadcast_json(topic, value, event="name")` sends JSON in a named event for client code.
+htmx dispatches it as a DOM event on the stream element; `event.detail.data` holds the JSON.
+
+`can_subscribe()` in `<package>/events.py` decides who may read a topic.
+`public:…` is open to everyone, `user:<id>` to that user; every other kind stays closed.
+Add a case for each new kind of topic, such as chat rooms with a membership check.
+It runs when a stream opens, so taking access away needs `close_streams(user=...)` or `close_streams(session=...)`.
+Each closed stream receives an event named `closed`, and htmx reconnects through the check again.
+Add `hx-sse:close="closed"` to a stream element that should stop instead.
+Logging out closes the streams of that session.
+Call `close_streams(user=...)` after a password change, so other sessions lose their streams.
+Logging in as another user without logging out first closes nothing: Django drops the old session key without a signal.
+
+Every event is stored, so a reconnecting browser receives the events it missed.
+`EVENTS_RETENTION_HOURS` (default 24) sets how far back that reaches.
+The `@cron` task `prune_stream_events` in `<package>/tasks.py` deletes older events hourly.
+Give list items stable ids, so an event delivered twice replaces its element instead of adding one.
+Each granian worker holds up to 2 + `PG_SSE["STREAM_CONNECTIONS"]` (default 4) connections for the streams.
+They come on top of Django's pool.
+
+## Tests
+
+Tests use Django's test framework with django-test-plus and model-bakery.
+The test runner in `<package>/test_runner.py` adds rich output.
+It also swaps the manifest static storage for a plain one, so tests need no `collectstatic`.
+It sets the default task backend to `ImmediateBackend`, so enqueued tasks run inside the test.
+Write a failing test before a fix or a feature.
+
+## Production
+
+The Docker image runs `manage.py serve`, granian over ASGI on port 8000, and migrates on start.
+Deployments run behind Caddy, which terminates TLS and compresses responses.
+Outside `DEBUG`, granian serves `STATIC_ROOT` itself with a one-year cache.
+`collectstatic` keeps only files with a content hash in their name, plus the manifest.
+The storage is `<package>/storage.py`.
+Reference static files only through `{% static %}`; a hard-coded `/static/...` path gets a 404.
+In `DEBUG`, Django serves static files from the app directories without `collectstatic`.
+`GRANIAN_*` environment variables configure granian, such as `GRANIAN_WORKERS`.
+The arguments `worker` and `scheduler` start the task worker and the scheduler from the same image.
+Only the web process migrates, so start the others after it.
+`SECRET_KEY` and `ALLOWED_HOSTS` must be set outside `DEBUG`.
