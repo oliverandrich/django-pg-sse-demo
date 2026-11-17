@@ -1,8 +1,20 @@
+from unittest import mock
+
+from asgiref.sync import async_to_sync
+from django.contrib.sessions.backends.db import SessionStore
+from django.test import RequestFactory
+from django.utils import timezone
+from django.utils.module_loading import import_string
+from django_pg_sse import conf
 from django_pg_sse.models import StreamEvent
+from django_pg_sse.presence import Presence
+from django_pg_sse.presence.models import PresenceEntry
 from model_bakery import baker
 from test_plus.test import TestCase
 
+from demo import events
 from demo.models import Message
+from demo.views import TOPIC
 
 
 class ChatTestCase(TestCase):
@@ -76,3 +88,62 @@ class SendTest(ChatTestCase):
         self.post("send", data={"text": "x" * 501})
         self.response_400()
         self.assertFalse(Message.objects.exists())
+
+
+class PresenceTest(ChatTestCase):
+    def test_a_visitor_with_a_name_is_present_under_their_sender_id(self):
+        request = RequestFactory().get("/events/")
+        request.session = SessionStore()
+        request.session.update({"chat_name": "Ada", "chat_sender": "abc123"})
+        self.assertEqual(events.chat_identity(request), ("visitor:abc123", {"name": "Ada"}))
+
+    def test_a_session_without_a_sender_id_is_not_present(self):
+        request = RequestFactory().get("/events/")
+        request.session = SessionStore()
+        request.session["chat_name"] = "Ada"
+        self.assertIsNone(events.chat_identity(request))
+
+    def test_a_visitor_without_a_name_is_not_present(self):
+        request = RequestFactory().get("/events/")
+        request.session = SessionStore()
+        self.assertIsNone(events.chat_identity(request))
+
+    def test_the_chat_topic_tracks_presence_by_that_identity(self):
+        self.assertIn(TOPIC, conf.get("PRESENCE_TOPICS"))
+        self.assertIs(import_string(conf.get("PRESENCE_IDENTITY")), events.chat_identity)
+
+    def test_the_page_lists_who_is_already_here(self):
+        baker.make(
+            PresenceEntry,
+            topic=TOPIC,
+            identity="visitor:x",
+            meta={"name": "Grace"},
+            last_seen=timezone.now(),
+        )
+        self.join("Ada")
+        self.get_check_200("chat")
+        self.assertResponseContains('id="online"', html=False)
+        self.assertResponseContains("Grace", html=False)
+
+    def test_a_change_broadcasts_the_new_list(self):
+        here = [Presence("visitor:a", {"name": "Ada"}), Presence("visitor:b", {"name": "Grace"})]
+        with (
+            mock.patch.object(events, "apresent", mock.AsyncMock(return_value=here)),
+            mock.patch.object(events, "abroadcast", mock.AsyncMock()) as abroadcast,
+        ):
+            async_to_sync(events.show_who_is_here)(
+                sender=Presence, topic=TOPIC, joined=(here[1],), left=()
+            )
+        ((topic, html), _) = abroadcast.call_args
+        self.assertEqual(topic, TOPIC)
+        self.assertIn('id="online"', html)
+        self.assertIn('hx-swap-oob="true"', html)
+        self.assertIn("Grace", html)
+        self.assertIn("2 online", html)
+
+    def test_other_topics_are_left_alone(self):
+        with mock.patch.object(events, "abroadcast", mock.AsyncMock()) as abroadcast:
+            async_to_sync(events.show_who_is_here)(
+                sender=Presence, topic="public:other", joined=(), left=()
+            )
+        abroadcast.assert_not_called()

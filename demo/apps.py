@@ -11,3 +11,7 @@ class ProjectConfig(AppConfig):
         import_module(f"{self.name}.scheduler_lock").install()
         cache = import_module(f"{self.name}.cache")
         post_migrate.connect(cache.create_cache_tables, sender=self)
+        from django_pg_sse.presence import presence_changed
+
+        events = import_module(f"{self.name}.events")
+        presence_changed.connect(events.show_who_is_here, dispatch_uid="demo.show_who_is_here")

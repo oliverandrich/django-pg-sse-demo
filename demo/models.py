@@ -1,6 +1,29 @@
+from dataclasses import dataclass
 from zlib import crc32
 
 from django.db import models
+from django_pg_sse.presence import Presence
+
+
+@dataclass(frozen=True)
+class Visitor:
+    """A chat visitor as the page shows them: a name with initials and an avatar hue."""
+
+    name: str
+
+    @classmethod
+    def of(cls, readers: list[Presence]) -> list[Visitor]:
+        """The visitors behind the readers that present() returns."""
+        return [cls(reader.meta["name"]) for reader in readers]
+
+    @property
+    def initials(self) -> str:
+        return "".join(part[0] for part in self.name.split()[:2]).upper()
+
+    @property
+    def hue(self) -> int:
+        """A stable avatar hue per name."""
+        return crc32(self.name.encode()) % 360
 
 
 class Message(models.Model):
@@ -17,9 +40,8 @@ class Message(models.Model):
 
     @property
     def initials(self) -> str:
-        return "".join(part[0] for part in self.name.split()[:2]).upper()
+        return Visitor(self.name).initials
 
     @property
     def hue(self) -> int:
-        """A stable avatar hue per name."""
-        return crc32(self.name.encode()) % 360
+        return Visitor(self.name).hue

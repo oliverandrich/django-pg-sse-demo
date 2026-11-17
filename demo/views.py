@@ -5,9 +5,10 @@ from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.views.decorators.http import require_POST
 from django_pg_sse import broadcast
+from django_pg_sse.presence import present
 
 from demo.forms import JoinForm, MessageForm
-from demo.models import Message
+from demo.models import Message, Visitor
 
 TOPIC = "public:chat"
 HISTORY = 50
@@ -28,7 +29,13 @@ def chat(request: HttpRequest) -> HttpResponse:
         return redirect("join")
     # The newest messages, shown oldest first.
     history = reversed(Message.objects.order_by("-pk")[:HISTORY])
-    return render(request, "chat.html", {"history": history, "form": MessageForm(), "topic": TOPIC})
+    context = {
+        "history": history,
+        "form": MessageForm(),
+        "topic": TOPIC,
+        "online": Visitor.of(present(TOPIC)),
+    }
+    return render(request, "chat.html", context)
 
 
 @require_POST

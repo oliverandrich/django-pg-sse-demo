@@ -5,16 +5,37 @@
 {% block content %}
     <main class="h-dvh flex flex-col max-w-3xl mx-auto bg-base-100 shadow-xl">
         <header class="navbar border-b border-base-300 px-4 gap-2">
-            <div class="flex-1 flex items-center gap-3">
+            <div class="flex-1 min-w-0 flex items-center gap-3">
                 <span class="text-2xl">💬</span>
-                <div>
-                    <h1 class="font-bold leading-tight">django-pg-sse chat</h1>
-                    <p class="text-xs text-base-content/60">
+                <div class="min-w-0">
+                    <h1 class="font-bold leading-tight truncate">django-pg-sse chat</h1>
+                    <p class="text-xs text-base-content/60 truncate">
                         You are <span class="font-semibold text-base-content">{{ request.session.chat_name }}</span>
                     </p>
                 </div>
             </div>
-            <a href="{% url 'join' %}" class="btn btn-ghost btn-sm">Change name</a>
+            {% partialdef online inline %}
+                <div id="online"
+                     {% if oob %}hx-swap-oob="true"{% endif %}
+                     class="flex items-center gap-2"
+                     title="{% for visitor in online %}{{ visitor.name }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+                    <div class="avatar-group -space-x-2 hidden sm:flex">
+                        {% for visitor in online|slice:":4" %}
+                            <div class="avatar avatar-placeholder">
+                                <div class="w-7 rounded-full text-white text-[10px] font-semibold"
+                                     style="background-color: hsl({{ visitor.hue }} 55% 45%)">
+                                    <span>{{ visitor.initials }}</span>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    <span class="text-xs text-base-content/60 whitespace-nowrap">
+                        <span class="inline-block size-2 rounded-full bg-success align-middle"></span>
+                        {{ online|length }} online
+                    </span>
+                </div>
+            {% endpartialdef online %}
+            <a href="{% url 'join' %}" class="btn btn-ghost btn-sm whitespace-nowrap">Change name</a>
         </header>
         <section id="scroller" class="group flex-1 overflow-y-auto px-4 py-6">
             <div id="messages" class="flex flex-col gap-1">

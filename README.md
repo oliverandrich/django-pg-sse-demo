@@ -4,8 +4,9 @@ A small chat that shows [django-pg-sse](https://github.com/oliverandrich/django-
 Visitors pick a name and chat; there is no login.
 Messages reach every open browser over PostgreSQL LISTEN/NOTIFY and server-sent events.
 No Redis and no WebSocket server are involved.
+The header shows who is online, through the presence app of django-pg-sse.
 
-![The chat page with messages from two visitors; the reader's own messages sit on the right.](docs/screenshot.png)
+![The chat page with messages from two visitors and both of them online in the header.](docs/screenshot.png)
 
 The project was generated from [django-project-starter](https://github.com/oliverandrich/django-project-starter).
 It uses htmx 4 with its hx-sse extension, and Tailwind CSS with daisyUI.
@@ -32,7 +33,9 @@ Open <http://127.0.0.1:8000/> in two browsers, or in a normal and a private wind
 | `demo/templates/chat.html` | The partial `broadcast` wraps a message in `hx-swap-oob="beforeend"` for `#messages`. |
 | `demo/templates/chat.html` | `hx-sse:connect` opens one stream for the topic `public:chat`. |
 | `demo/templates/chat.html` | A short script aligns the visitor's own messages, since every visitor receives the same HTML. |
-| `demo/settings.py` | `PG_SSE` points `CAN_SUBSCRIBE` at `demo/events.py`. |
+| `demo/settings.py` | `PG_SSE` points `CAN_SUBSCRIBE` and `PRESENCE_IDENTITY` at `demo/events.py` and tracks `public:chat`. |
+| `demo/events.py` | `chat_identity()` names a visitor by the random sender id; `show_who_is_here()` broadcasts the online list. |
+| `demo/templates/chat.html` | The partial `online` renders that list, with `hx-swap-oob="true"` in the broadcast. |
 | `demo/urls.py` | The stream view lives at `/events/`. |
 
 `broadcast()` sends after the transaction commits.
@@ -44,6 +47,9 @@ The page itself renders the last 50 messages.
 
 A message sent between rendering the page and opening the stream does not reach that page.
 The first connect has no `Last-Event-ID` to replay from.
+
+The online list keeps a visitor's old name after a name change until the next join or leave.
+`present()` returns the name of the visitor's oldest open stream.
 
 ## License
 

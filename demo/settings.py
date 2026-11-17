@@ -62,6 +62,7 @@ INSTALLED_APPS += [
     "django_tasks_db",
     "crontask",
     "django_pg_sse",
+    "django_pg_sse.presence",
 ]
 
 # Our apps
@@ -231,6 +232,9 @@ PG_SSE = {
     "CAN_SUBSCRIBE": "demo.events.can_subscribe",
     # A reconnecting stream replays missed events from this window, after which they are pruned.
     "RETENTION_HOURS": env.int("EVENTS_RETENTION_HOURS", default=24),
+    # Who is in the chat; events.py names each visitor.
+    "PRESENCE_TOPICS": ["public:chat"],
+    "PRESENCE_IDENTITY": "demo.events.chat_identity",
 }
 
 # django-tailwind-cli settings
