@@ -82,7 +82,16 @@ First results, one worker, client and server on one MacBook, PostgreSQL local:
 | 2000 | anonymous | 10/s | 21.2 s | 0 | 46 / 155 ms | 804 MB |
 
 The ramp asked for 100 new clients per second.
-Named clients connect slower, because every join sends the whole online list to every open stream.
+In these runs, every join sent the whole online list to every open stream.
+
+`demo/events.py` now sends at most one online list per second and worker, and the list has a fixed size:
+
+| Clients | Join | Messages | Connected after | Lost | Latency p50 / p99 | Worker RSS |
+|---|---|---|---|---|---|---|
+| 1000 | named | 10/s | 10.5 s | 0 | 28 / 45 ms | 222 MB |
+| 2000 | named | 10/s | 21.2 s | 0 | 46 / 103 ms | 364 MB |
+
+Both connect as fast as the ramp, like anonymous clients.
 
 ## Known limits
 

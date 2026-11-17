@@ -17,11 +17,10 @@
             {% partialdef online inline %}
                 <div id="online"
                      {% if oob %}hx-swap-oob="true"{% endif %}
-                     class="flex items-center gap-2"
-                     title="{% for visitor in online %}{{ visitor.name }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+                     class="flex items-center gap-2">
                     <div class="avatar-group -space-x-2 hidden sm:flex">
                         {% for visitor in online|slice:":4" %}
-                            <div class="avatar avatar-placeholder">
+                            <div class="avatar avatar-placeholder" title="{{ visitor.name }}">
                                 <div class="w-7 rounded-full text-white text-[10px] font-semibold"
                                      style="background-color: hsl({{ visitor.hue }} 55% 45%)">
                                     <span>{{ visitor.initials }}</span>

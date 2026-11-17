@@ -1,7 +1,9 @@
+import asyncio
 from unittest import mock
 
 from asgiref.sync import async_to_sync
 from django.contrib.sessions.backends.db import SessionStore
+from django.template.loader import render_to_string
 from django.test import RequestFactory
 from django.utils import timezone
 from django.utils.module_loading import import_string
@@ -13,7 +15,7 @@ from model_bakery import baker
 from test_plus.test import TestCase
 
 from demo import events
-from demo.models import Message
+from demo.models import Message, Visitor
 from demo.views import TOPIC
 
 
@@ -125,27 +127,108 @@ class PresenceTest(ChatTestCase):
         self.assertResponseContains('id="online"', html=False)
         self.assertResponseContains("Grace", html=False)
 
-    def test_a_change_broadcasts_the_new_list(self):
+    def setUp(self):
+        super().setUp()
+        # A test that failed before its broadcast ran leaves it behind, bound to its own loop.
+        events._tasks.clear()
+        events._pending.clear()
+        patcher = mock.patch.object(events, "connections")
+        self.connections = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    async def change(self, *readers):
+        """Report one presence change, as the tracker does."""
+        await events.show_who_is_here(sender=Presence, topic=TOPIC, joined=readers, left=())
+
+    async def settle(self):
+        """Wait for every pending broadcast of the online list."""
+        # A finished task leaves _tasks one loop turn later.
+        while pending := [task for task in events._tasks if not task.done()]:
+            await asyncio.gather(*pending)
+
+    async def test_a_change_broadcasts_the_new_list(self):
         here = [Presence("visitor:a", {"name": "Ada"}), Presence("visitor:b", {"name": "Grace"})]
         with (
-            mock.patch.object(events, "apresent", mock.AsyncMock(return_value=here)),
-            mock.patch.object(events, "abroadcast", mock.AsyncMock()) as abroadcast,
+            mock.patch.object(events, "ONLINE_DELAY", 0),
+            mock.patch.object(events, "present", return_value=here),
+            mock.patch.object(events, "broadcast") as broadcast,
         ):
-            async_to_sync(events.show_who_is_here)(
-                sender=Presence, topic=TOPIC, joined=(here[1],), left=()
-            )
-        ((topic, html), kwargs) = abroadcast.call_args
+            await self.change(here[1])
+            await self.settle()
+        ((topic, html), kwargs) = broadcast.call_args
         self.assertEqual(topic, TOPIC)
         # A replay sends only the newest list, not every list the tab missed.
         self.assertEqual(kwargs, {"latest": "online"})
         self.assertIn('id="online"', html)
         self.assertIn('hx-swap-oob="true"', html)
-        self.assertIn("Grace", html)
         self.assertIn("2 online", html)
 
-    def test_other_topics_are_left_alone(self):
-        with mock.patch.object(events, "abroadcast", mock.AsyncMock()) as abroadcast:
-            async_to_sync(events.show_who_is_here)(
-                sender=Presence, topic="public:other", joined=(), left=()
-            )
-        abroadcast.assert_not_called()
+    async def test_the_broadcast_closes_its_connections(self):
+        with (
+            mock.patch.object(events, "ONLINE_DELAY", 0),
+            mock.patch.object(events, "present", return_value=[]),
+            mock.patch.object(events, "broadcast"),
+        ):
+            await self.change()
+            await self.settle()
+        self.connections.close_all.assert_called_once_with()
+
+    async def test_a_cancelled_broadcast_lets_the_next_change_schedule_one(self):
+        with mock.patch.object(events, "broadcast"):
+            await self.change()
+            (task,) = events._tasks
+            # One loop turn, so the task is waiting out the delay.
+            await asyncio.sleep(0)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        self.assertFalse(events._pending)
+
+    async def test_changes_within_the_delay_share_one_broadcast(self):
+        here = [Presence("visitor:a", {"name": "Ada"}), Presence("visitor:b", {"name": "Grace"})]
+        with (
+            mock.patch.object(events, "ONLINE_DELAY", 0),
+            mock.patch.object(events, "present", return_value=here) as present,
+            mock.patch.object(events, "broadcast") as broadcast,
+        ):
+            await self.change(here[0])
+            await self.change(here[1])
+            await self.settle()
+        present.assert_called_once_with(TOPIC)
+        broadcast.assert_called_once()
+
+    async def test_a_change_during_the_read_gets_its_own_broadcast(self):
+        ada = Presence("visitor:a", {"name": "Ada"})
+        grace = Presence("visitor:b", {"name": "Grace"})
+
+        def read(topic):
+            # Grace joins after the first broadcast started reading.
+            if present.call_count == 1:
+                async_to_sync(self.change)(grace)
+                return [ada]
+            return [ada, grace]
+
+        with (
+            mock.patch.object(events, "ONLINE_DELAY", 0),
+            mock.patch.object(events, "present", side_effect=read) as present,
+            mock.patch.object(events, "broadcast") as broadcast,
+        ):
+            await self.change(ada)
+            await self.settle()
+        self.assertEqual(broadcast.call_count, 2)
+        self.assertIn("2 online", broadcast.call_args.args[1])
+
+    def test_the_list_shows_four_visitors_and_a_count(self):
+        names = ["Ada", "Grace", "Linus", "Guido", "Margaret", "Barbara"]
+        online = Visitor.of([Presence(f"visitor:{name}", {"name": name}) for name in names])
+        html = render_to_string("chat.html#online", {"online": online})
+        self.assertIn("6 online", html)
+        # The size stays the same however many visitors are online.
+        self.assertNotIn("Margaret", html)
+        self.assertNotIn("Barbara", html)
+
+    async def test_other_topics_are_left_alone(self):
+        with mock.patch.object(events, "broadcast") as broadcast:
+            await events.show_who_is_here(sender=Presence, topic="public:other", joined=(), left=())
+            await self.settle()
+        self.assertFalse(events._tasks)
+        broadcast.assert_not_called()
