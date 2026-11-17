@@ -5,6 +5,8 @@ Visitors pick a name and chat; there is no login.
 Messages reach every open browser over PostgreSQL LISTEN/NOTIFY and server-sent events.
 No Redis and no WebSocket server are involved.
 
+![The chat page with messages from two visitors; the reader's own messages sit on the right.](docs/screenshot.png)
+
 The project was generated from [django-project-starter](https://github.com/oliverandrich/django-project-starter).
 It uses htmx 4 with its hx-sse extension, and Tailwind CSS with daisyUI.
 
