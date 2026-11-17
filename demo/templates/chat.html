@@ -81,7 +81,9 @@
             {% endpartialdef form %}
         </footer>
         {# One stream per page. Every message arrives as an OOB swap into #messages. #}
-        <div hx-sse:connect="{% url 'pg_sse:stream' %}?topic={{ topic }}"></div>
+        {# pauseOnBackground off: hx-sse would close the stream of a hidden tab, and its visitor would leave. #}
+        <div hx-sse:connect="{% url 'pg_sse:stream' %}?topic={{ topic }}"
+             hx-config='{"sse": {"pauseOnBackground": false}}'></div>
     </main>
     {% partialdef broadcast %}
         {# The target matches nothing once the message is on the page, such as after the hub reconnects. #}
