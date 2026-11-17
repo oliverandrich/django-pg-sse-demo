@@ -44,6 +44,46 @@ The default `can_subscribe()` opens `public:` topics to everyone, so anonymous v
 A reconnecting browser replays the messages it missed from the table `django_pg_sse_streamevent`.
 The page itself renders the last 50 messages.
 
+## Load test
+
+`loadtest/sse_load.py` opens many streams and measures how long each message takes to reach all of them.
+Each client joins with a name, so presence runs as in a browser; `--anonymous` skips the join.
+It is a standalone uv script, so the demo needs no extra dependency.
+
+Run the server without `DEBUG`, as `debugserver` adds a browser-reload stream per tab:
+
+```sh
+ulimit -n 65536
+uv run python manage.py collectstatic --no-input
+DEBUG=false SECRET_KEY=local ALLOWED_HOSTS=127.0.0.1 GRANIAN_PORT=8002 GRANIAN_BACKPRESSURE=8192 \
+    uv run python manage.py serve
+```
+
+In a second shell:
+
+```sh
+ulimit -n 65536
+uv run loadtest/sse_load.py --base http://127.0.0.1:8002 --clients 1000 --rate 10 --duration 20
+```
+
+granian handles at most `GRANIAN_BACKPRESSURE` requests per worker at once, 1024 by default.
+Every open stream is such a request, so the default caps a worker at 1024 streams.
+
+First results, one worker, client and server on one MacBook, PostgreSQL local:
+
+| Clients | Join | Messages | Connected after | Lost | Latency p50 / p99 | Worker RSS |
+|---|---|---|---|---|---|---|
+| 100 | named | 10/s | 1.2 s | 0 | 13 / 22 ms | 97 MB |
+| 500 | named | 10/s | 7.8 s | 0 | 21 / 42 ms | 184 MB |
+| 1000 | named | 10/s | 24.9 s | 0 | 30 / 84 ms | 360 MB |
+| 1000 | anonymous | 10/s | 10.5 s | 0 | 31 / 75 ms | 347 MB |
+| 1000 | named | 50/s | 24.7 s | 0 | 25 / 43 ms | 383 MB |
+| 2000 | named | 10/s | 90.0 s | 0 | 47 / 142 ms | 834 MB |
+| 2000 | anonymous | 10/s | 21.2 s | 0 | 46 / 155 ms | 804 MB |
+
+The ramp asked for 100 new clients per second.
+Named clients connect slower, because every join sends the whole online list to every open stream.
+
 ## Known limits
 
 A message sent between rendering the page and opening the stream does not reach that page.
