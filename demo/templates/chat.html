@@ -63,7 +63,7 @@
         <div hx-sse:connect="{% url 'pg_sse:stream' %}?topic={{ topic }}"></div>
     </main>
     {% partialdef broadcast %}
-        {# The target matches nothing once the message is on the page, so a replayed copy is skipped. #}
+        {# The target matches nothing once the message is on the page, such as after the hub reconnects. #}
         <div hx-swap-oob='beforeend target:"#messages:not(:has(> #message-{{ message.pk }}))"'>{% partial message %}</div>
     {% endpartialdef broadcast %}
 {% endblock content %}
