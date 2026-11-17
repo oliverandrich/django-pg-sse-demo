@@ -35,6 +35,7 @@ Open <http://127.0.0.1:8000/> in two browsers, or in a normal and a private wind
 | `demo/templates/chat.html` | A short script aligns the visitor's own messages, since every visitor receives the same HTML. |
 | `demo/settings.py` | `PG_SSE` points `CAN_SUBSCRIBE` and `PRESENCE_IDENTITY` at `demo/events.py` and tracks `public:chat`. |
 | `demo/events.py` | `chat_identity()` names a visitor by the random sender id; `show_who_is_here()` broadcasts the online list. |
+| `demo/events.py` | The list goes out with `latest="online"`, so a replay sends only the newest one. |
 | `demo/templates/chat.html` | The partial `online` renders that list, with `hx-swap-oob="true"` in the broadcast. |
 | `demo/urls.py` | The stream view lives at `/events/`. |
 
@@ -47,9 +48,6 @@ The page itself renders the last 50 messages.
 
 A message sent between rendering the page and opening the stream does not reach that page.
 The first connect has no `Last-Event-ID` to replay from.
-
-The online list keeps a visitor's old name after a name change until the next join or leave.
-`present()` returns the name of the visitor's oldest open stream.
 
 ## License
 

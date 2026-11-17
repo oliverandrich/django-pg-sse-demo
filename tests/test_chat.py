@@ -134,8 +134,10 @@ class PresenceTest(ChatTestCase):
             async_to_sync(events.show_who_is_here)(
                 sender=Presence, topic=TOPIC, joined=(here[1],), left=()
             )
-        ((topic, html), _) = abroadcast.call_args
+        ((topic, html), kwargs) = abroadcast.call_args
         self.assertEqual(topic, TOPIC)
+        # A replay sends only the newest list, not every list the tab missed.
+        self.assertEqual(kwargs, {"latest": "online"})
         self.assertIn('id="online"', html)
         self.assertIn('hx-swap-oob="true"', html)
         self.assertIn("Grace", html)

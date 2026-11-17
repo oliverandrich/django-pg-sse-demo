@@ -51,4 +51,5 @@ async def show_who_is_here(
         return
     online = Visitor.of(await apresent(topic))
     html = render_to_string("chat.html#online", {"online": online, "oob": True})
-    await abroadcast(topic, html)
+    # latest: a replay sends only the newest list, not every list the tab missed.
+    await abroadcast(topic, html, latest="online")
