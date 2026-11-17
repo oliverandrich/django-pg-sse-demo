@@ -319,7 +319,7 @@ requires-dist = [
     { name = "django-click", specifier = ">=2.5.0" },
     { name = "django-crontask", specifier = ">=2.2.0" },
     { name = "django-htmx", specifier = ">=1.29.0" },
-    { name = "django-pg-sse", specifier = ">=0.2.0" },
+    { name = "django-pg-sse", specifier = ">=0.3.0" },
     { name = "django-tailwind-cli", extras = ["django-extensions"], specifier = ">=4.8.1" },
     { name = "django-tasks-db", specifier = ">=0.13.0" },
     { name = "environs", extras = ["django"], specifier = ">=15.2.0" },
@@ -455,15 +455,15 @@ wheels = [
 
 [[package]]
 name = "django-pg-sse"
-version = "0.2.0"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
     { name = "psycopg", extra = ["pool"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9c/14/21e9cfb5e2f22d113c91da3a50c123b72adf0ac54304c2b9280e7520717b/django_pg_sse-0.2.0.tar.gz", hash = "sha256:502706ffe979c13bc0cf7abae16a48227b7bbda047b881adadcd0f80e24d31f3", size = 87179, upload-time = "2026-11-17T13:30:32.013Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bd/46/85aba22c45b6ca59dc5945b1c69ccef1d011fc5c24199aeeb2a7d545f6da/django_pg_sse-0.3.0.tar.gz", hash = "sha256:a61d63ef304ff3f3e0f26abf599b79ff856803c69a72b955bac3922c0d7d4fa5", size = 90263, upload-time = "2026-11-17T15:14:27.46Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bb/5c/330b99b067c92f5d1179b8715643435d15ac4ffbff470909d4f9f4715826/django_pg_sse-0.2.0-py3-none-any.whl", hash = "sha256:0d540fc52c004e45a45642af9684c422d47bbfd952591efd89d0e94a05d1b2d6", size = 38874, upload-time = "2026-11-17T13:30:30.852Z" },
+    { url = "https://files.pythonhosted.org/packages/c9/ee/c969089fdf08e6c5909de995e50c1063ea2de008e592e4328fc7efae7148/django_pg_sse-0.3.0-py3-none-any.whl", hash = "sha256:e052acba74ed5e60a0d2b1cc23ac9d2c61fc95ffc463557465e0dff88afbdc92", size = 40742, upload-time = "2026-11-17T15:14:26.181Z" },
 ]
 
 [[package]]
