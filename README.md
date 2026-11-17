@@ -55,8 +55,7 @@ Run the server without `DEBUG`, as `debugserver` adds a browser-reload stream pe
 ```sh
 ulimit -n 65536
 uv run python manage.py collectstatic --no-input
-DEBUG=false SECRET_KEY=local ALLOWED_HOSTS=127.0.0.1 GRANIAN_PORT=8002 GRANIAN_BACKPRESSURE=8192 \
-    uv run python manage.py serve
+DEBUG=false SECRET_KEY=local ALLOWED_HOSTS=127.0.0.1 GRANIAN_PORT=8002 uv run python manage.py serve
 ```
 
 In a second shell:
@@ -66,8 +65,9 @@ ulimit -n 65536
 uv run loadtest/sse_load.py --base http://127.0.0.1:8002 --clients 1000 --rate 10 --duration 20
 ```
 
-granian handles at most `GRANIAN_BACKPRESSURE` requests per worker at once, 1024 by default.
-Every open stream is such a request, so the default caps a worker at 1024 streams.
+granian handles at most `GRANIAN_BACKPRESSURE` requests per worker at once, and every open stream is one.
+granian's own default is its backlog of 1024 divided by the workers.
+`manage.py serve` sets 8192 instead; without it, the 2000-client runs below failed past 1024 streams.
 
 First results, one worker, client and server on one MacBook, PostgreSQL local:
 
