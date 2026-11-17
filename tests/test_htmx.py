@@ -9,8 +9,8 @@ VENDORED = ("vendor/htmx/htmx.min.js", "vendor/htmx/ext/hx-sse.min.js")
 
 
 class HtmxTest(TestCase):
-    def test_home_page_loads_the_vendored_scripts(self):
-        response = self.client.get("/")
+    def test_pages_load_the_vendored_scripts(self):
+        response = self.client.get("/join/")
         for path in VENDORED:
             self.assertContains(response, f'<script src="{settings.STATIC_URL}{path}" defer>')
 
@@ -24,20 +24,20 @@ class HtmxTest(TestCase):
 
     def test_body_boosts_links_for_all_descendants(self):
         # htmx 4 passes attributes to descendants only with the :inherited suffix.
-        self.assertContains(self.client.get("/"), 'hx-boost:inherited="true"')
+        self.assertContains(self.client.get("/join/"), 'hx-boost:inherited="true"')
 
     def test_csrf_header_follows_the_cookie(self):
         # A token fixed in the page goes stale when login() rotates it; the cookie does not.
-        response = self.client.get("/")
+        response = self.client.get("/join/")
         self.assertContains(response, "htmx:config:request")
         self.assertContains(response, "csrftoken=")
 
     def test_fallback_csrf_token_passes_the_csrf_check(self):
         client = Client(enforce_csrf_checks=True)
-        page = client.get("/").content.decode()
+        page = client.get("/join/").content.decode()
         # Django renders a masked CSRF token as 64 alphanumeric characters.
         token = re.search(r'"([A-Za-z0-9]{64})"', page)
         assert token is not None, "base.html renders no fallback CSRF token"
-        # 405 comes from the view, so CsrfViewMiddleware let the request through.
-        response = client.post("/", headers={"X-CSRFToken": token[1]})
-        self.assertEqual(response.status_code, 405)
+        # 400 comes from the view's form validation, so CsrfViewMiddleware let the request through.
+        response = client.post("/join/", headers={"X-CSRFToken": token[1]})
+        self.assertEqual(response.status_code, 400)

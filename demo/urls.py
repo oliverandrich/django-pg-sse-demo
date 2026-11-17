@@ -9,11 +9,14 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.contrib.staticfiles.views import serve as serve_static
 from django.urls import include, path, re_path
-from django.views.generic import TemplateView
+
+from demo import views
 
 urlpatterns = [
     # Our urls
-    path("", TemplateView.as_view(template_name="base.html")),
+    path("", views.chat, name="chat"),
+    path("join/", views.join, name="join"),
+    path("messages/", views.send, name="send"),
     # Admin area
     path("admin/", admin.site.urls),
     path("events/", include("django_pg_sse.urls")),

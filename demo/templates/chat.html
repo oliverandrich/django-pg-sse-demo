@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Chat{% endblock %}
+
+{% block content %}
+    <main class="h-dvh flex flex-col max-w-3xl mx-auto bg-base-100 shadow-xl">
+        <header class="navbar border-b border-base-300 px-4 gap-2">
+            <div class="flex-1 flex items-center gap-3">
+                <span class="text-2xl">💬</span>
+                <div>
+                    <h1 class="font-bold leading-tight">django-pg-sse chat</h1>
+                    <p class="text-xs text-base-content/60">
+                        You are <span class="font-semibold text-base-content">{{ request.session.chat_name }}</span>
+                    </p>
+                </div>
+            </div>
+            <a href="{% url 'join' %}" class="btn btn-ghost btn-sm">Change name</a>
+        </header>
+        <section id="scroller" class="group flex-1 overflow-y-auto px-4 py-6">
+            <div id="messages" class="flex flex-col gap-1">
+                {% for message in history %}
+                    {% partialdef message inline %}
+                        <div id="message-{{ message.pk }}"
+                             class="chat {% if message.sender == request.session.chat_sender %}chat-end{% else %}chat-start{% endif %}"
+                             data-sender="{{ message.sender }}">
+                            <div class="chat-image avatar avatar-placeholder">
+                                <div class="w-10 rounded-full text-white text-sm font-semibold"
+                                     style="background-color: hsl({{ message.hue }} 55% 45%)">
+                                    <span>{{ message.initials }}</span>
+                                </div>
+                            </div>
+                            <div class="chat-header text-xs">
+                                {{ message.name }}
+                                <time class="opacity-50" datetime="{{ message.created|date:'c' }}">{{ message.created|time:"H:i" }}</time>
+                            </div>
+                            <div class="chat-bubble break-words {% if message.sender == request.session.chat_sender %}chat-bubble-primary{% endif %}">
+                                {{ message.text }}
+                            </div>
+                        </div>
+                    {% endpartialdef message %}
+                {% endfor %}
+            </div>
+            <div class="h-full flex flex-col items-center justify-center text-center text-base-content/50 gap-2 group-has-[.chat]:hidden">
+                <span class="text-4xl">👋</span>
+                <p>No messages yet. Say hello!</p>
+            </div>
+        </section>
+        <footer class="border-t border-base-300 p-3">
+            {% partialdef form inline %}
+                <form id="send"
+                      hx-post="{% url 'send' %}"
+                      hx-swap="outerHTML"
+                      class="flex flex-col gap-1">
+                    <div class="join w-full">
+                        {{ form.text }}
+                        <button class="btn btn-primary join-item">Send</button>
+                    </div>
+                    {% for error in form.text.errors %}<p class="text-error text-xs px-1">{{ error }}</p>{% endfor %}
+                </form>
+            {% endpartialdef form %}
+        </footer>
+        {# One stream per page. Every message arrives as an OOB swap into #messages. #}
+        <div hx-sse:connect="{% url 'pg_sse:stream' %}?topic={{ topic }}"></div>
+    </main>
+    {% partialdef broadcast %}
+        {# The target matches nothing once the message is on the page, so a replayed copy is skipped. #}
+        <div hx-swap-oob='beforeend target:"#messages:not(:has(> #message-{{ message.pk }}))"'>{% partial message %}</div>
+    {% endpartialdef broadcast %}
+{% endblock content %}
+
+{% block extra_js %}
+    <script>
+        // Every visitor receives the same HTML, rendered as someone else's message.
+        (() => {
+            const me = "{{ request.session.chat_sender }}";
+            const scroller = document.getElementById("scroller");
+            const messages = document.getElementById("messages");
+            // Updated on scroll, so it reflects the position before a new message changes the height.
+            let following = true;
+            scroller.addEventListener("scroll", () => {
+                following = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop < 80;
+            });
+            new MutationObserver((records) => {
+                const mine = records
+                    .flatMap((record) => [...record.addedNodes])
+                    .filter((node) => node.dataset?.sender === me);
+                mine.forEach((node) => {
+                    node.classList.replace("chat-start", "chat-end");
+                    node.querySelector(".chat-bubble").classList.add("chat-bubble-primary");
+                });
+                if (following || mine.length) scroller.scrollTop = scroller.scrollHeight;
+            }).observe(messages, { childList: true });
+            scroller.scrollTop = scroller.scrollHeight;
+        })();
+    </script>
+{% endblock extra_js %}

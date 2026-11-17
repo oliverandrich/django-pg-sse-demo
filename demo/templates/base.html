@@ -5,6 +5,7 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>{% block title %}Home{% endblock %}</title>
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
         {% tailwind_css %}
         {# htmx 4, vendored by `mise run update-htmx`. #}
         <script src="{% static 'vendor/htmx/htmx.min.js' %}" defer></script>
@@ -21,7 +22,7 @@
         {% django_browser_reload_script %}
         {% block extra_head %}{% endblock %}
     </head>
-    <body hx-boost:inherited="true">
+    <body hx-boost:inherited="true" class="bg-base-200">
         {% block content %}
             <div class="min-h-screen flex justify-center items-center">
                 <div class="text-5xl">
