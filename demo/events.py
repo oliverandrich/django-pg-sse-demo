@@ -6,18 +6,15 @@ PG_SSE["CAN_SUBSCRIBE"] and PG_SSE["PRESENCE_IDENTITY"] in settings.py point her
 """
 
 import asyncio
-import contextvars
 import logging
 import weakref
 from typing import Any
 
-from asgiref.sync import sync_to_async
-from django.db import connections
 from django.http import HttpRequest
 from django.template.loader import render_to_string
-from django_pg_sse import broadcast
+from django_pg_sse import abroadcast
 from django_pg_sse.permissions import can_subscribe as default_can_subscribe
-from django_pg_sse.presence import Presence, present
+from django_pg_sse.presence import Presence, apresent
 
 logger = logging.getLogger(__name__)
 
@@ -67,34 +64,25 @@ async def show_who_is_here(
     loop = asyncio.get_running_loop()
     if loop in _pending:
         return
-    # An empty context: the change may come from a stream or a sweep, and its request context
-    # would give sync_to_async that request's thread. Without one, it uses the shared sync thread.
-    task = loop.create_task(_send_online(topic), context=contextvars.Context())
+    # django-pg-sse runs this receiver outside the stream's sync thread, and the task inherits that.
+    task = loop.create_task(_send_online(topic))
     _pending.add(loop)
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
 
 
 async def _send_online(topic: str) -> None:
+    from demo.models import Visitor
+
     try:
         await asyncio.sleep(ONLINE_DELAY)
     finally:
         # Removed before the read: a change during the read schedules the next broadcast.
         _pending.discard(asyncio.get_running_loop())
     try:
-        await sync_to_async(_broadcast_online)(topic)
-    except Exception:
-        logger.exception("Sending the online list failed.")
-
-
-def _broadcast_online(topic: str) -> None:
-    from demo.models import Visitor
-
-    try:
-        online = Visitor.of(present(topic))
+        online = Visitor.of(await apresent(topic))
         html = render_to_string("chat.html#online", {"online": online, "oob": True})
         # latest: a replay sends only the newest list, not every list the tab missed.
-        broadcast(topic, html, latest="online")
-    finally:
-        # The shared sync thread would hold its connections until the worker stops.
-        connections.close_all()
+        await abroadcast(topic, html, latest="online")
+    except Exception:
+        logger.exception("Sending the online list failed.")
